@@ -3,7 +3,9 @@ package com.MentorMate.project_management_service.service;
 import com.MentorMate.project_management_service.entity.*;
 import com.MentorMate.project_management_service.repo.*;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class StudentService {
@@ -26,44 +28,63 @@ public class StudentService {
     @Autowired
     private GuideRepository guideRepository;
 
-    public ProjectGroup createProjectGroup(String name, Long leaderId) {
-        Student leader = studentRepository.findById(leaderId).orElseThrow(() -> new RuntimeException("Student not found"));
+
+    public ProjectGroup createGroup(String name, Long leaderId) {
+
+        Student leader = studentRepository.findById(leaderId)
+                .orElseThrow(() -> new RuntimeException("Leader not found"));
+
         ProjectGroup group = new ProjectGroup();
         group.setName(name);
         group.setLeader(leader);
+
         return projectGroupRepository.save(group);
     }
 
+
     public ProjectGroup addMember(Long groupId, Long studentId, Long leaderId) {
-        // Fetch group
+        // 1️⃣ Fetch group
         ProjectGroup group = projectGroupRepository.findById(groupId)
                 .orElseThrow(() -> new RuntimeException("Group not found"));
 
-        // Authorization check
-        if (!group.getLeader().getId().equals(leaderId))
-            throw new RuntimeException("Not authorized");
+        // 2️⃣ Authorization check
+        if (!group.getLeader().getId().equals(leaderId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not authorized");
+        }
 
-        // Fetch student
+        // 3️⃣ Fetch student
         Student student = studentRepository.findById(studentId)
                 .orElseThrow(() -> new RuntimeException("Student not found"));
 
-        // Add student to group members
+        // 4️⃣ Check if student is already a member (active)
+        boolean alreadyMember = projectMemberRepository
+                .findByProjectGroupId(groupId)
+                .stream()
+                .anyMatch(m ->
+                        m.getStudent() != null &&
+                                studentId.equals(m.getStudent().getId()) &&
+                                m.getRemovedAt() == null
+                );
+
+        if (alreadyMember) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Student already member");
+        }
+
+        // 5️⃣ Create new ProjectMember entry
+        ProjectMember newMember = new ProjectMember();
+        newMember.setProjectGroup(group);
+        newMember.setStudent(student);
+        newMember.setAddedAt(java.time.LocalDateTime.now());
+
+        projectMemberRepository.save(newMember);
+
+        // 6️⃣ Also add student to group's members list (so response shows updated members)
         group.getMembers().add(student);
 
-        // Optionally create ProjectMember record
-        ProjectMember member = projectMemberRepository.findByProjectGroupId(groupId).stream()
-                .filter(m -> m.getStudent() != null &&
-                        studentId.equals(m.getStudent().getId()) &&
-                        m.getRemovedAt() == null)
-                .findFirst()
-                .orElseThrow(() -> new RuntimeException("Member not found"));
-
-        // ✅ Save the ProjectGroup if needed
-        projectGroupRepository.save(group);
-
-        // ✅ Return the updated group
-        return group;
+        // 7️⃣ Save group
+        return projectGroupRepository.save(group);
     }
+
 
 
     public ProjectGroup removeMember(Long groupId, Long studentId, Long leaderId) {

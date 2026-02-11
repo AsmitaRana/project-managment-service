@@ -4,7 +4,7 @@ import jakarta.persistence.*;
 import lombok.Data;
 
 import java.time.LocalDateTime;
-@Entity
+@Entity(name = "ProjectDocument") // give a unique name
 @Table(name = "documents")
 @Data
 public class Document {
